@@ -182,20 +182,35 @@
       statusEl.textContent = '正在載入 ' + defaultCsvFile + '...';
       statusEl.className = 'meta loading';
       
-      try {
-        const response = await fetch(defaultCsvFile);
-        if (!response.ok) {
-          throw new Error('HTTP ' + response.status);
+      // Try multiple path variations for compatibility
+      const pathsToTry = [
+        defaultCsvFile,
+        './' + defaultCsvFile,
+        '/' + defaultCsvFile,
+        './qsl/' + defaultCsvFile
+      ];
+      
+      let lastError = null;
+      for (const csvPath of pathsToTry) {
+        try {
+          const response = await fetch(csvPath);
+          if (response.ok) {
+            const csvText = await response.text();
+            parseAndDisplay(csvText, defaultCsvFile);
+            return; // Success!
+          }
+        } catch (err) {
+          lastError = err;
+          continue; // Try next path
         }
-        const csvText = await response.text();
-        parseAndDisplay(csvText, defaultCsvFile);
-      } catch (err) {
-        // 如果無法自動載入（例如使用 file:// 協議），顯示提示
-        statusEl.className = 'meta';
-        statusEl.textContent = '無法自動載入檔案。請使用本地伺服器（如 Python 的 http.server）開啟此頁面。';
-        errorEl.textContent = '錯誤：' + err.message;
-        console.log('無法自動載入 CSV:', err);
       }
+      
+      // If all paths failed, show error
+      statusEl.className = 'meta';
+      statusEl.textContent = '無法自動載入檔案。請使用 URL 參數指定 CSV 檔案：?csv=qsl_kx.csv';
+      errorEl.textContent = '錯誤：無法載入 ' + defaultCsvFile + '。請確認檔案存在於儲存庫中。';
+      console.error('無法自動載入 CSV，嘗試的路徑:', pathsToTry);
+      console.error('最後的錯誤:', lastError);
     }
 
     // 頁面載入時自動嘗試載入 CSV
