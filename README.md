@@ -4,9 +4,13 @@ A simple, lightweight historical document viewer for browsing and searching Qing
 
 ## Usage
 
+### Online Access
+
+The viewer is available online at: **https://mic7ch1.github.io/qsl/**
+
 ### Basic Usage
 
-1. Place `kxqsl.html` and your CSV file in the same folder
+1. Place `index.html` (or `kxqsl.html` if using locally) and your CSV file in the same folder
 2. Open using a local server (see instructions below)
 3. The page will automatically load `qsl_kx.csv`, or specify a file using URL parameters
 
@@ -29,14 +33,19 @@ python -m SimpleHTTPServer 8000
 npx http-server -p 8000
 ```
 
-Then open in your browser: `http://localhost:8000/kxqsl.html`
+Then open in your browser: `http://localhost:8000/index.html` (or `http://localhost:8000/kxqsl.html` if you haven't renamed it)
 
 ### Specifying a Different CSV File
 
 Add a `csv` parameter to the URL:
 
 ```
-http://localhost:8000/kxqsl.html?csv=your_file.csv
+https://mic7ch1.github.io/qsl/?csv=your_file.csv
+```
+
+Or locally:
+```
+http://localhost:8000/index.html?csv=your_file.csv
 ```
 
 ### CSV Format Requirements
