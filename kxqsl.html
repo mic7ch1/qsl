@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>清實錄 CSV 檢視器</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      line-height: 1.8;
+      margin: 20px;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+      color: #333;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+    #searchBox {
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 0.8rem;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 1rem;
+      z-index: 100;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    #searchBox.hidden {
+      display: none;
+    }
+    #searchInput {
+      width: 100%;
+      padding: 0.5rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    #searchInput:focus {
+      outline: none;
+      border-color: #0066cc;
+      box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+    }
+    #searchInfo {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 0.3rem;
+    }
+    #controls {
+      margin-bottom: 1rem;
+      padding: 0.8rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #f7f7f7;
+    }
+    #controls.hidden {
+      display: none;
+    }
+    #output {
+      margin-top: 1rem;
+    }
+    section.entry {
+      border-bottom: 1px solid #ddd;
+      padding: 1.5rem 0;
+    }
+    section.entry:last-child {
+      border-bottom: none;
+    }
+    section.entry.hidden {
+      display: none;
+    }
+    section.entry.highlight {
+      background-color: #fff9c4;
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+      margin-left: -0.5rem;
+      margin-right: -0.5rem;
+      border-radius: 4px;
+    }
+    section.entry h2 {
+      font-size: 1.2rem;
+      margin: 0 0 0.5rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+    p {
+      margin: 0.5rem 0;
+      white-space: pre-wrap;
+      font-size: 1rem;
+      text-align: justify;
+    }
+    mark {
+      background-color: #ffeb3b;
+      padding: 0.1em 0.2em;
+      border-radius: 2px;
+    }
+    .meta {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+    .error {
+      color: #b00020;
+      font-weight: bold;
+      margin-top: 0.5rem;
+    }
+    .loading {
+      color: #666;
+      font-style: italic;
+    }
+    @media (max-width: 600px) {
+      body {
+        margin: 10px;
+      }
+      #controls {
+        padding: 0.6rem;
+      }
+      #searchBox {
+        padding: 0.6rem;
+      }
+    }
+    @media print {
+      body {
+        max-width: none;
+        margin: 0;
+      }
+      #searchBox {
+        display: none;
+      }
+      #controls {
+        display: none;
+      }
+      section.entry {
+        page-break-inside: avoid;
+        border-bottom: 1px solid #ccc;
+      }
+      section.entry h2 {
+        page-break-after: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>清實錄 CSV 檢視器</h1>
+  <div id="controls">
+    <div id="status" class="meta" role="status" aria-live="polite"></div>
+    <div id="error" class="error" role="alert" aria-live="assertive"></div>
+  </div>
+
+  <div id="searchBox" class="hidden">
+    <input type="text" id="searchInput" placeholder="搜尋文字... (Ctrl+F 或 Cmd+F)">
+    <div id="searchInfo"></div>
+  </div>
+
+  <div id="output"></div>
+
+  <script>
+    const output = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+    const errorEl = document.getElementById('error');
+    const controlsEl = document.getElementById('controls');
+    const searchBox = document.getElementById('searchBox');
+    const searchInput = document.getElementById('searchInput');
+    const searchInfo = document.getElementById('searchInfo');
+
+    // 從 URL 參數取得 CSV 檔案名稱，或使用預設值
+    const urlParams = new URLSearchParams(window.location.search);
+    const defaultCsvFile = urlParams.get('csv') || 'qsl_kx.csv';
+    
+    // 搜尋相關變數
+    let allEntries = [];
+    let currentSearchTerm = '';
+    let currentMatchIndex = -1;
+    let matches = [];
+    
+    // 嘗試自動載入 CSV 檔案
+    async function loadDefaultCsv() {
+      statusEl.textContent = '正在載入 ' + defaultCsvFile + '...';
+      statusEl.className = 'meta loading';
+      
+      try {
+        const response = await fetch(defaultCsvFile);
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+        const csvText = await response.text();
+        parseAndDisplay(csvText, defaultCsvFile);
+      } catch (err) {
+        // 如果無法自動載入（例如使用 file:// 協議），顯示提示
+        statusEl.className = 'meta';
+        statusEl.textContent = '無法自動載入檔案。請使用本地伺服器（如 Python 的 http.server）開啟此頁面。';
+        errorEl.textContent = '錯誤：' + err.message;
+        console.log('無法自動載入 CSV:', err);
+      }
+    }
+
+    // 頁面載入時自動嘗試載入 CSV
+    loadDefaultCsv();
+
+    function parseAndDisplay(csvText, filename) {
+      try {
+        const rows = parseCSV(csvText);
+        if (!rows.length) {
+          statusEl.textContent = 'CSV 檔內沒有資料。';
+          return;
+        }
+
+        const headers = rows[0].map(h => h.replace(/^\uFEFF/, '').trim());
+        const dataRows = rows.slice(1);
+
+        const idxVolume = headers.indexOf('volume');
+        const idxYear = headers.indexOf('year');
+        const idxMonth = headers.indexOf('month');
+        const idxDay = headers.indexOf('day_ganzhi');
+        const idxText = headers.indexOf('text');
+
+        if (idxVolume === -1 || idxYear === -1 || idxMonth === -1 || idxDay === -1 || idxText === -1) {
+          errorEl.textContent = 'CSV 標題列必須包含：volume, year, month, day_ganzhi, text。';
+          return;
+        }
+
+        let shownCount = 0;
+
+        dataRows.forEach(cols => {
+          if (!cols.length) return;
+
+          const volume = cols[idxVolume] || '';
+          const year = cols[idxYear] || '';
+          const month = cols[idxMonth] || '';
+          const day = cols[idxDay] || '';
+          const text = cols[idxText] || '';
+
+          if (!text.trim()) return;
+
+          const sectionEl = document.createElement('section');
+          sectionEl.className = 'entry';
+
+          // 標題：年 + 月 + 日干支
+          const titleParts = [];
+          if (year) titleParts.push(year);
+          if (month) titleParts.push(month);
+          if (day) titleParts.push(day);
+          if (titleParts.length) {
+            const h2 = document.createElement('h2');
+            h2.textContent = titleParts.join(' ');
+            sectionEl.appendChild(h2);
+          }
+
+          // 卷資訊
+          const metaBits = [];
+          if (volume) metaBits.push('卷次：' + volume);
+          if (metaBits.length) {
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'meta';
+            metaDiv.textContent = metaBits.join('　');
+            sectionEl.appendChild(metaDiv);
+          }
+
+          const pEl = document.createElement('p');
+          // Escape HTML to prevent XSS, but preserve whitespace
+          pEl.textContent = text;
+          
+          // 存原始文字供搜尋使用
+          pEl.dataset.originalText = text;
+
+          // 存 metadata 在 data-*，供複製事件使用
+          pEl.dataset.volume = volume;
+          pEl.dataset.year = year;
+          pEl.dataset.month = month;
+          pEl.dataset.day = day;
+
+          sectionEl.appendChild(pEl);
+
+          output.appendChild(sectionEl);
+          shownCount += 1;
+        });
+
+        // Hide controls and show search box after successful load
+        if (shownCount > 0) {
+          controlsEl.classList.add('hidden');
+          searchBox.classList.remove('hidden');
+          allEntries = Array.from(output.querySelectorAll('section.entry'));
+        } else {
+          statusEl.textContent = '沒有可顯示的內容。';
+        }
+      } catch (err) {
+        console.error(err);
+        errorEl.textContent = '處理 CSV 時發生錯誤。';
+      }
+    }
+
+    // 簡單 CSV 解析器，支援引號與逗號
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const next = i + 1 < text.length ? text[i + 1] : '';
+
+        if (inQuotes) {
+          if (ch === '"' && next === '"') {
+            current += '"';
+            i++;
+          } else if (ch === '"') {
+            inQuotes = false;
+          } else {
+            current += ch;
+          }
+        } else {
+          if (ch === '"') {
+            inQuotes = true;
+          } else if (ch === ',') {
+            row.push(current);
+            current = '';
+          } else if (ch === '\r') {
+            // ignore
+          } else if (ch === '\n') {
+            row.push(current);
+            rows.push(row);
+            row = [];
+            current = '';
+          } else {
+            current += ch;
+          }
+        }
+      }
+
+      // Handle unclosed quotes (graceful degradation)
+      if (inQuotes) {
+        // If we're still in quotes at the end, treat the quote as a literal character
+        current = '"' + current;
+      }
+
+      if (current.length > 0 || row.length) {
+        row.push(current);
+        rows.push(row);
+      }
+
+      return rows;
+    }
+
+    // 全局複製事件：在複製 <p> 文字時，加上 metadata 行
+    document.addEventListener('copy', function (e) {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+
+      const selectedText = sel.toString();
+      if (!selectedText.trim()) return;
+
+      let node = sel.anchorNode;
+      if (!node) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        node = node.parentNode;
+      }
+
+      // 找到最近的 p[data-volume]
+      let p = null;
+      if (node.closest) {
+        p = node.closest('p');
+      } else {
+        // Fallback for older browsers
+        while (node && node.nodeType !== Node.ELEMENT_NODE) {
+          node = node.parentNode;
+        }
+        while (node && node.tagName !== 'P') {
+          node = node.parentNode;
+        }
+        p = node;
+      }
+      if (!p || !p.dataset || !p.dataset.volume) return;
+
+      const volume = p.dataset.volume || '';
+      const year = p.dataset.year || '';
+      const month = p.dataset.month || '';
+      const day = p.dataset.day || '';
+
+      const metaLine = `《聖祖仁皇帝實錄》, ${volume}, ${year}, ${month}, ${day}`;
+      const combined = selectedText + '\n' + metaLine;
+
+      e.preventDefault();
+      if (e.clipboardData) {
+        e.clipboardData.setData('text/plain', combined);
+      } else if (window.clipboardData) {
+        // for older IE
+        window.clipboardData.setData('Text', combined);
+      }
+    });
+
+    // 搜尋功能
+    function performSearch(term) {
+      currentSearchTerm = term.toLowerCase().trim();
+      matches = [];
+      currentMatchIndex = -1;
+
+      if (!currentSearchTerm) {
+        // 清除搜尋結果
+        allEntries.forEach(entry => {
+          entry.classList.remove('hidden', 'highlight');
+          const marks = entry.querySelectorAll('mark');
+          marks.forEach(mark => {
+            const parent = mark.parentNode;
+            parent.replaceChild(document.createTextNode(mark.textContent), mark);
+            parent.normalize();
+          });
+        });
+        searchInfo.textContent = '';
+        return;
+      }
+
+      // 搜尋並標記
+      let firstMatchFound = false;
+      allEntries.forEach((entry, entryIndex) => {
+        const textEl = entry.querySelector('p');
+        if (!textEl) return;
+
+        const originalText = textEl.dataset.originalText || textEl.textContent;
+        const lowerText = originalText.toLowerCase();
+        const termIndex = lowerText.indexOf(currentSearchTerm);
+
+        if (termIndex === -1) {
+          entry.classList.add('hidden');
+          entry.classList.remove('highlight');
+          // 恢復原始文字
+          textEl.textContent = originalText;
+          textEl.dataset.originalText = originalText;
+        } else {
+          entry.classList.remove('hidden');
+          
+          // 標記所有匹配
+          let searchIndex = 0;
+          const entryMatches = [];
+          while ((searchIndex = lowerText.indexOf(currentSearchTerm, searchIndex)) !== -1) {
+            entryMatches.push(searchIndex);
+            matches.push({ entryIndex, position: searchIndex });
+            searchIndex += currentSearchTerm.length;
+          }
+
+          // 高亮第一個匹配的條目
+          if (!firstMatchFound && entryMatches.length > 0) {
+            entry.classList.add('highlight');
+            entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            firstMatchFound = true;
+          } else {
+            entry.classList.remove('highlight');
+          }
+
+          // 在文字中標記匹配項
+          let lastIndex = 0;
+          const highlightedText = [];
+          
+          for (const matchPos of entryMatches) {
+            if (matchPos > lastIndex) {
+              highlightedText.push(originalText.substring(lastIndex, matchPos));
+            }
+            const mark = document.createElement('mark');
+            mark.textContent = originalText.substring(matchPos, matchPos + currentSearchTerm.length);
+            highlightedText.push(mark);
+            lastIndex = matchPos + currentSearchTerm.length;
+          }
+          
+          if (lastIndex < originalText.length) {
+            highlightedText.push(originalText.substring(lastIndex));
+          }
+
+          // 更新文字內容
+          textEl.innerHTML = '';
+          highlightedText.forEach(node => {
+            if (typeof node === 'string') {
+              textEl.appendChild(document.createTextNode(node));
+            } else {
+              textEl.appendChild(node);
+            }
+          });
+          // 保持原始文字在 data 屬性中
+          textEl.dataset.originalText = originalText;
+        }
+      });
+
+      // 更新搜尋資訊
+      const visibleCount = allEntries.filter(e => !e.classList.contains('hidden')).length;
+      if (visibleCount > 0) {
+        searchInfo.textContent = `找到 ${matches.length} 個匹配，顯示 ${visibleCount} 個條目`;
+      } else {
+        searchInfo.textContent = '未找到匹配項';
+      }
+    }
+
+    // 搜尋輸入事件
+    let searchTimeout;
+    searchInput.addEventListener('input', function(e) {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        performSearch(e.target.value);
+      }, 300); // 防抖
+    });
+
+    // 鍵盤快捷鍵
+    document.addEventListener('keydown', function(e) {
+      // Ctrl+F 或 Cmd+F 聚焦搜尋框
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        if (searchBox.classList.contains('hidden')) return;
+        searchInput.focus();
+        searchInput.select();
+      }
+      
+      // ESC 清除搜尋
+      if (e.key === 'Escape' && document.activeElement === searchInput) {
+        searchInput.value = '';
+        performSearch('');
+        searchInput.blur();
+      }
+    });
+  </script>
+</body>
+</html>
